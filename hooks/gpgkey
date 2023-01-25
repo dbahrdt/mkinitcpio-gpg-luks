@@ -1,0 +1,43 @@
+#!/usr/bin/ash
+
+run_earlyhook() {
+    mkdir -m 0700 /tmp/gpg
+    echo "pinentry-program /usr/bin/pinentry-tty" > /tmp/gpg/gpg-agent.conf
+}
+
+run_hook() {
+    if [ -n "$gpg_decrypt" ]; then
+        export GPG_TTY=/dev/tty0
+        IFS=: read ckdev cktype ckinfile ckoutfile <<EOF
+$gpg_decrypt
+EOF
+        resolved=$(resolve_device "${ckdev}" ${rootdelay})
+	mkdir /ckey
+	echo "Mounting $resolved as $cktype"
+        mount -r -t "$cktype" "$resolved" /ckey
+        if [ -f "/ckey/${ckinfile}" ]; then
+            try_decrypt="yes"
+            while [ "${try_decrypt}" != "no" ]; do
+            	echo "Decrypting key /ckey/$ckinfile to $ckoutfile"
+            	gpg --homedir /tmp/gpg -o $ckoutfile --decrypt /ckey/$ckinfile
+                if [ $? -ne 0 ]; then
+                    echo "Decryption failed. Try again? (YES/no)"
+                    read try_decrypt
+                else
+                    try_decrypt="no"
+                fi
+                killall -9 gpg-agent &> /dev/null
+            done
+	else
+            echo "Did not find file ${ckinfile} on device $ckdev"
+        fi	
+        umount /ckey
+    fi
+}
+
+run_cleanuphook()
+{
+    killall -9 gpg-agent &> /dev/null
+}
+
+# vim: set ft=sh ts=4 sw=4 et:
